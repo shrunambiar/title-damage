@@ -1,0 +1,15 @@
+import {NextRequest,NextResponse} from 'next/server';
+import {db,hash,token,code,roomCookie,errorStatus,rpc} from '@/lib/server';
+export const runtime='nodejs';
+export async function GET(req:NextRequest){try{const room=(req.nextUrl.searchParams.get('code')||'').toUpperCase();if(!/^[A-HJ-NP-Z2-9]{4}$/.test(room))throw new Error('Invalid room code');const credential=req.cookies.get(roomCookie(room,'host'))?.value||req.cookies.get(roomCookie(room,'player'))?.value;if(!credential)throw new Error('Please join this room first');const state=await rpc('td_view',{p_code:room,p_auth:hash(credential)});return NextResponse.json(state,{headers:{'Cache-Control':'no-store'}})}catch(e){const msg=(e as Error).message;return NextResponse.json({error:msg},{status:errorStatus(msg)})}}
+export async function POST(req:NextRequest){try{const body=await req.json();const ip=req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()||'unknown';const allowed=await rpc<boolean>('td_limit',{p_key:hash('room:'+body.action+':'+ip),p_max:body.action==='create'?12:45,p_window_seconds:600});if(!allowed)throw new Error('Too many requests. Try again later.');if(body.action==='create'){
+const credential=token();let hostId:string|undefined;const prior=req.cookies.get('td_host_id')?.value;
+// The anonymous host identity persists in an HttpOnly cookie, never a client-provided ID.
+if(prior){const {data}=await db().from('anonymous_hosts').select('id').eq('session_hash',hash(prior)).maybeSingle();hostId=data?.id}
+if(!hostId){const {data,error}=await db().from('anonymous_hosts').insert({session_hash:hash(prior||credential)}).select('id').single();if(error)throw error;hostId=data.id}
+let room='';for(let i=0;i<12;i++){room=code();const {error}=await db().from('rooms').insert({code:room,host_id:hostId,host_session_hash:hash(credential)});if(!error)break;if(i===11)throw error;room=''}
+const response=NextResponse.json({code:room});response.cookies.set(roomCookie(room,'host'),credential,{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'lax',path:'/',maxAge:86400});if(!prior)response.cookies.set('td_host_id',credential,{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'lax',path:'/',maxAge:60*60*24*365});return response;
+}
+if(body.action==='join'){const room=String(body.code||'').toUpperCase();if(!/^[A-HJ-NP-Z2-9]{4}$/.test(room))throw new Error('Invalid room code');const previous=req.cookies.get(roomCookie(room,'player'))?.value;if(previous){const {data}=await db().rpc('td_view',{p_code:room,p_auth:hash(previous)});if(data?.myPlayerId)return NextResponse.json({ok:true,code:room,restored:true})}
+const credential=token();await rpc('td_join',{p_code:room,p_hash:hash(credential),p_nickname:body.nickname});const response=NextResponse.json({ok:true,code:room});response.cookies.set(roomCookie(room,'player'),credential,{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'lax',path:'/',maxAge:60*60*24*7});return response;
+}throw new Error('Unknown request');}catch(e){const msg=(e as Error).message;return NextResponse.json({error:msg},{status:errorStatus(msg)})}}

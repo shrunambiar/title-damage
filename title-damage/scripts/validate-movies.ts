@@ -1,0 +1,4 @@
+import {readFileSync} from 'node:fs';
+const rows=JSON.parse(readFileSync('data/movies.json','utf8'));const ids=new Set(),normalized=new Set();let invalid=0;
+for(const [i,m] of rows.entries()){const errors=[];for(const k of ['id','title','year','language','industry','genres','popularity_tier','humor_score','normalized_title'])if(m[k]===undefined||m[k]===null)errors.push(k);if(ids.has(m.id))errors.push('duplicate ID');ids.add(m.id);const key=`${m.normalized_title}-${m.year}-${m.language}`;if(normalized.has(key))errors.push('duplicate title/year/language');normalized.add(key);if(typeof m.year!=='number'||m.year<1888||m.year>2030)errors.push('year');if(!Array.isArray(m.genres))errors.push('genres');if(errors.length){console.error(i,m.title,errors.join(','));invalid++}}
+console.log(`Verified ${rows.length-invalid} movie records; ${invalid} invalid. ${rows.length-invalid>=2000?'2,000+ target reached':'2,000 target NOT reached.'}`);if(invalid)process.exit(1)
