@@ -9,3 +9,20 @@ export function insertWord(title:string,index:number,word:string){const parts=mo
 export function validateWord(word:string){if(typeof word!=='string'||word.length>40||!(/^[\p{L}\p{M}\p{N}][\p{L}\p{M}\p{N}'’\-]*$/u.test(word))||Array.from(word).length>24)throw new Error('Enter exactly one word (letters, numbers, apostrophe or hyphen).');return word;}
 export function points(votes:number,maxVotes:number,winners:number){return votes*100+(maxVotes>0&&votes===maxVotes?200/winners:0)}
 export function winners<T extends {votes:number}>(entries:T[]){const max=Math.max(0,...entries.map(e=>e.votes));return max===0?[]:entries.filter(e=>e.votes===max)}
+
+/** Parse a fully typed movie title into exactly one inserted word.
+ * The original title is never accepted as rewritten; only its whitespace and casing may vary.
+ * The server still receives only the insertion index and validated word.
+ */
+export function parseRuinedTitle(original:string,edited:string):{word:string;index:number}{
+ const base=movieParts(original), candidate=edited.trim().split(/\s+/u);
+ if(candidate.length!==base.length+1)throw new Error('Add exactly ONE word to the original title.');
+ for(let index=0;index<candidate.length;index++){
+  const remainder=candidate.filter((_,j)=>j!==index);
+  if(remainder.every((part,j)=>part.toLocaleLowerCase()===base[j].toLocaleLowerCase())){
+   validateWord(candidate[index]);
+   return {word:candidate[index],index};
+  }
+ }
+ throw new Error('Keep every original word in the same order, and add only one new word.');
+}
